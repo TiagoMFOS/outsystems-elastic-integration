@@ -1,0 +1,291 @@
+PUT _ilm/policy/os-mon-log-ilm-policy
+{
+    "policy": {
+      "phases": {
+        "hot": {
+          "actions": {
+            "rollover": {
+              "max_age": "24h",
+              "max_size": "25gb"
+            }
+          }
+        },
+        "delete": {
+          "min_age": "15d",
+          "actions": {
+            "delete": {}
+          }
+        }
+      }
+    }
+}
+
+PUT _template/os-mon-log-request-breakdown
+{
+    "index_patterns": "os-mon-log-request-breakdown*",
+    "version": 1,
+    "settings": {
+      "index.refresh_interval": "15s",
+      "index.number_of_shards": "1",
+      "index.lifecycle.name": "os-mon-log-ilm-policy",
+      "index.lifecycle.rollover_alias": "os-mon-log-request-breakdown"
+    },
+    "mappings": {
+      "properties": {
+        "application": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "module": {
+              "type": "keyword"
+            }
+          }
+        },
+        "request": {
+          "properties": {
+            "key": {
+              "type": "keyword"
+            },
+            "total_time": {
+              "type": "double"
+            },
+            "network": {
+              "properties": {
+                "time": {
+                  "type": "double"
+                }
+              }
+            },
+            "client": {
+              "properties": {
+                "time": {
+                  "type": "double"
+                },
+                "load_time": {
+                  "type": "double"
+                }
+              }
+            },
+            "server": {
+              "properties": {
+                "time": {
+                  "type": "double"
+                },
+                "error_count": {
+                  "type": "double"
+                },
+                "query": {
+                  "properties": {
+                    "time": {
+                      "type": "double"
+                    },
+                    "executions": {
+                      "type": "double"
+                    }
+                  }
+                },
+                "integration": {
+                  "properties": {
+                    "time": {
+                      "type": "double"
+                    },
+                    "executions": {
+                      "type": "double"
+                    }
+                  }
+                },
+                "extension": {
+                  "properties": {
+                    "time": {
+                      "type": "double"
+                    },
+                    "executions": {
+                      "type": "double"
+                    }
+                  }
+                },
+                "session": {
+                  "properties": {
+                    "acquisition_time": {
+                      "type": "double"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "@timestamp": {
+          "type": "date"
+        }
+      }
+    }
+}
+
+PUT _transform/request-breakdown
+{
+    "id": "request-breakdown",
+    "source": {
+      "index": [
+        "os-mon-log-request-event-*"
+      ],
+      "query": {
+        "bool" : {
+          "should": [
+            {"bool": {
+              "must": [
+                {"match": {
+                  "request_event.name.keyword": "WebScreenClientExecuted"
+                }},
+                {"range": {
+                  "request.total_duration": {
+                    "gt": 0
+                  }
+                }}
+              ]
+            }},
+            {"bool": {
+              "must": [
+                {"match": {
+                  "request_event.name.keyword": "WebScreenServerExecuted"
+                }},
+                {"range": {
+                  "request.server_duration": {
+                    "gt": 0
+                  }
+                }}
+              ]
+            }}
+          ],
+          "filter": [
+            {"range": {
+              "@timestamp": {
+                "gte": "2020-12-01T00:00:00"
+              }
+            }}
+          ]
+        }
+      }
+    },
+    "dest": {
+      "index": "os-mon-log-request-breakdown"
+    },
+    "sync": {
+      "time": {
+        "field": "@timestamp",
+        "delay": "5m"
+      }
+    },
+    "pivot": {
+      "group_by": {
+        "application.name": {
+          "terms": {
+            "field": "application.name.keyword"
+          }
+        },
+        "application.module": {
+          "terms": {
+            "field": "application.module_name.keyword"
+          }
+        },
+        "request.key": {
+          "terms": {
+            "field": "request.key.keyword"
+          }
+        }
+      },
+      "aggregations": {
+        "request.client.time": {
+          "sum": {
+            "field": "request.total_duration"
+          }
+        },
+        "request.client.load_time": {
+          "sum": {
+            "field": "request.load_time"
+          }
+        },
+        "request.server.time": {
+          "sum": {
+            "field": "request.server_duration"
+          }
+        },
+        "request.server.query.time": {
+          "sum": {
+            "field": "query.total_time"
+          }
+        },
+        "request.server.query.executions": {
+          "sum": {
+            "field": "query.total_executions"
+          }
+        },
+        "request.server.integration.time": {
+          "sum": {
+            "field": "integration.total_time"
+          }
+        },
+        "request.server.integration.executions": {
+          "sum": {
+            "field": "integration.total_executions"
+          }
+        },
+        "request.server.extension.time": {
+          "sum": {
+            "field": "extension.total_time"
+          }
+        },
+        "request.server.extension.executions": {
+          "sum": {
+            "field": "extension.total_executions"
+          }
+        },
+        "request.server.error_count": {
+          "sum": {
+            "field": "request.error_count"
+          }
+        },
+        "request.server.session.acquisition_time": {
+          "sum": {
+            "field": "session.acquisition_time"
+          }
+        },
+        "@timestamp": {
+          "min": {
+            "field": "@timestamp"
+          }
+        },
+        "request.network.time": {
+          "bucket_script": {
+            "buckets_path": {
+              "c": "request.total_time.value",
+              "l": "request.client.load_time.value",
+              "s": "request.server.time.value"
+            },
+            "script": "params.c == 0 ? 0 : params.c - params.l - params.s"
+          }
+        },
+        "request.total_time": {
+          "bucket_script": {
+            "buckets_path": {
+              "c": "request.client.time.value",
+              "s": "request.server.time.value"
+            },
+            "script": "params.c == 0 ? params.s : params.c"
+          }
+        }
+      }
+    }
+}
+
+PUT os-mon-log-request-breakdown-000001
+{
+  "aliases": {
+    "os-mon-log-request-breakdown": {
+      "is_write_index": true
+    }
+  }
+}
+
+POST _transform/request-breakdown/_start
