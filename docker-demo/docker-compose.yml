@@ -76,8 +76,9 @@ services:
       - ./logstash/patterns:/usr/share/logstash/patterns:ro
       - ./logstash/run:/usr/share/logstash/run:ro
 ## CHOOSE ONE OF THE FOLLOWING, EITHER DB ACCESS OR MONITOR PROBE      
-      - ./logstash/pipeline/monitor-probe:/usr/share/logstash/pipeline:ro
-#      - ./logstash/pipeline/database:/usr/share/logstash/pipeline:ro      
+      # - ./logstash/pipeline/monitor-probe:/usr/share/logstash/pipeline:ro
+    #  - ./logstash/pipeline/database:/usr/share/logstash/pipeline:ro    
+      - ./logstash/pipeline/monitor-probe-dynatrace:/usr/share/logstash/pipeline:ro
     ports:
       - "5000:5000"
     environment:
@@ -88,7 +89,7 @@ services:
      - elasticsearch
     links:
       - elasticsearch
-    command: bash -c "/usr/share/logstash/bin/logstash-plugin install logstash-filter-range && /usr/local/bin/docker-entrypoint"
+    command: bash -c "/usr/share/logstash/bin/logstash-plugin install logstash-filter-range logstash-output-dynatrace && /usr/local/bin/docker-entrypoint"
 
 networks:
   elasticnetwork:
